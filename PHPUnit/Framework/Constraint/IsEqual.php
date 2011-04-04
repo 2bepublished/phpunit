@@ -310,17 +310,8 @@ class PHPUnit_Framework_Constraint_IsEqual extends PHPUnit_Framework_Constraint
         }
 
         if (is_object($a)) {
-            $isMock = $a instanceof PHPUnit_Framework_MockObject_MockObject;
-            $a      = (array)$a;
-            $b      = (array)$b;
-
-            if ($isMock) {
-                unset($a["\0*\0invocationMocker"]);
-
-                if (isset($b["\0*\0invocationMocker"])) {
-                    unset($b["\0*\0invocationMocker"]);
-                }
-            }
+            $a = $this->normalizeObject($a, $a);
+            $b = $this->normalizeObject($b, $a);
         }
 
         if ($this->canonicalize) {
@@ -351,6 +342,103 @@ class PHPUnit_Framework_Constraint_IsEqual extends PHPUnit_Framework_Constraint
         }
 
         return TRUE;
+    }
+
+    /**
+     * Converts an object into a normalized array
+     *
+     * @param  object $object  The object instance
+     * @return array           The array representation of the object
+     */
+    protected function normalizeObject($object, $ref)
+    {
+        $array = array();
+
+        foreach ((array)$object as $key => $value) {
+            // properties are transformed to keys in the following way:
+
+            // private   $property => "\0Classname\0property"
+            // protected $property => "\0*\0property"
+            // public    $property => "property"
+
+            if (preg_match('/^\0.+\0(.+)$/', $key, $matches)) {
+                $key = $matches[1];
+            }
+
+            $array[$key] = $value;
+        }
+
+        if (!is_object($object)) {
+            return $array;
+        }
+
+        if ($object instanceof PHPUnit_Framework_MockObject_MockObject) {
+            if (isset($array['invocationMocker'])) {
+                unset($array['invocationMocker']);
+            }
+        }
+
+        if ($object instanceof Doctrine_Record) {
+            foreach ($array as $key => $value) {
+                if (!in_array($key, array(
+                    '_id',
+                    '_data',
+                    '_values',
+                    '_references',
+                ))) {
+                    unset($array[$key]);
+                }
+            }
+
+            unset($array['_data']['created_at']);
+            unset($array['_data']['updated_at']);
+
+            foreach ($array['_data'] as &$value) {
+                if ($value instanceof Doctrine_Null) {
+                    $value = null;
+                }
+            }
+        }
+
+        if ($object instanceof Doctrine_Collection) {
+            foreach ($array as $key => $value) {
+                if (!in_array($key, array(
+                    'data',
+                    '_table',
+                    'keyColumn',
+                ))) {
+                    unset($array[$key]);
+                }
+            }
+        }
+
+        if ($object instanceof Swift_Message) {
+            // don't compare generated ID
+            if (isset($array['_id'])) {
+                unset($array['_id']);
+            }
+
+            // don't compare generated cache key
+            if (isset($array['_cacheKey'])) {
+                unset($array['_cacheKey']);
+            }
+        }
+
+        if ($object instanceof Swift_Mime_Headers_DateHeader) {
+            // don't compare timestamp ID
+            if (isset($array['_timestamp'])) {
+                unset($array['_timestamp']);
+            }
+        }
+
+        if ($object instanceof Swift_Mime_Headers_IdentificationHeader) {
+            // don't compare generated ID
+            if (isset($array['_ids'])) {
+                unset($array['_ids']);
+            }
+        }
+
+        return $array;
     }
 
     /**
